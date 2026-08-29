@@ -16,8 +16,6 @@ export async function placeCall(to: string): Promise<string> {
     );
   }
 
-  // Inline TwiML: when answered, bridge the PSTN call directly to OpenAI via SIP.
-  // OpenAI will fire a realtime.call.incoming webhook to our server.
   const sipUri = `sip:${config.openai.projectId}@sip.api.openai.com;transport=tls`;
   const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Dial><Sip>${sipUri}</Sip></Dial></Response>`;
 
