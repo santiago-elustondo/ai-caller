@@ -6,27 +6,20 @@ import { acceptCall } from './realtime.js';
 
 const app = express();
 
-// Parse raw body for webhook signature verification
 app.use(express.raw({ type: 'application/json', limit: '1mb' }));
-// Also parse urlencoded for Twilio status callbacks
 app.use(express.urlencoded({ extended: false }));
 
-// ─── Health check ────────────────────────────────────────────────────────────
+// ─── Health check ─────────────────────────────────────────────────────────────
 
 app.get('/', (_req: Request, res: Response) => {
   res.json({ status: 'ok', service: 'ai-caller' });
 });
 
-// ─── OpenAI realtime webhook ─────────────────────────────────────────────────
-//
-// OpenAI calls this endpoint when an inbound SIP call arrives.
-// We verify the signature (if OPENAI_WEBHOOK_SECRET is set),
-// then accept the call and configure the realtime session.
+// ─── OpenAI realtime webhook ──────────────────────────────────────────────────
 
 app.post('/webhook', async (req: Request, res: Response) => {
   const rawBody = req.body as Buffer;
 
-  // Verify Svix signature when a secret is configured
   if (config.openai.webhookSecret) {
     const wh = new Webhook(config.openai.webhookSecret);
     try {
@@ -49,57 +42,51 @@ app.post('/webhook', async (req: Request, res: Response) => {
   }
 
   console.log(`[webhook] received event: ${event.type}`);
-  if (event.type !== 'realtime.call.incoming') {
-    console.log('[webhook] payload:', JSON.stringify(event, null, 2));
-  }
 
   if (event.type === 'realtime.call.incoming') {
     const callId = (event.data?.call_id ?? event.data?.id) as string | undefined;
-
     if (!callId) {
-      console.error('[webhook] realtime.call.incoming missing call_id', event.data);
       res.status(400).json({ error: 'missing call_id' });
       return;
     }
 
-    console.log(`[webhook] OpenAI call incoming — call_id: ${callId}`);
-    console.log('[webhook] full payload:', JSON.stringify(event.data, null, 2));
-
-    // Acknowledge immediately so OpenAI doesn't time out waiting
+    console.log(`[webhook] OpenAI call incoming — call_id=${callId}`);
     res.status(200).json({ received: true });
 
-    // Accept the call asynchronously
-    acceptCall(callId).catch((err) => {
+    void acceptCall(callId).catch((err) => {
       console.error(`[realtime] failed to accept call ${callId}:`, err);
     });
     return;
   }
 
-  // Acknowledge unknown event types
   res.status(200).json({ received: true });
 });
 
-// ─── Twilio status callbacks ─────────────────────────────────────────────────
+// ─── Twilio status + error callbacks ─────────────────────────────────────────
 
 app.post('/status', (req: Request, res: Response) => {
-  const { CallSid, CallStatus, To, From } = req.body as Record<string, string>;
-
-  const statusMap: Record<string, string> = {
-    queued: 'call created',
-    initiated: 'call created',
-    ringing: 'ringing',
-    'in-progress': 'call answered',
-    completed: 'call ended',
-    busy: 'call ended (busy)',
-    failed: 'call ended (failed)',
-    'no-answer': 'call ended (no-answer)',
-    canceled: 'call ended (canceled)',
+  const { CallSid, CallStatus, To, From, ErrorCode, ErrorMessage } =
+    req.body as Record<string, string>;
+  const labels: Record<string, string> = {
+    queued: 'call created', initiated: 'call created', ringing: 'ringing',
+    'in-progress': 'call answered', completed: 'call ended',
+    busy: 'call ended (busy)', failed: 'call ended (failed)',
+    'no-answer': 'call ended (no-answer)', canceled: 'call ended (canceled)',
   };
-
-  const label = statusMap[CallStatus] ?? CallStatus;
-  console.log(`[twilio] ${label} — sid=${CallSid} from=${From} to=${To}`);
-
+  const label = labels[CallStatus] ?? CallStatus;
+  if (ErrorCode) {
+    console.error(`[twilio] ERROR ${ErrorCode}: ${ErrorMessage} — sid=${CallSid}`);
+  } else {
+    console.log(`[twilio] ${label} — sid=${CallSid} from=${From} to=${To}`);
+  }
   res.sendStatus(204);
+});
+
+// Twilio calls this when TwiML execution fails.
+app.post('/fallback', (req: Request, res: Response) => {
+  const { CallSid, ErrorCode, ErrorMessage } = req.body as Record<string, string>;
+  console.error(`[twilio] TwiML fallback — sid=${CallSid} error=${ErrorCode}: ${ErrorMessage}`);
+  res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>');
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────

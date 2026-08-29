@@ -1,7 +1,6 @@
 import twilio from 'twilio';
 import { config } from './config.js';
 
-// Authenticate with API key (recommended over AccountSid + AuthToken)
 export const twilioClient = twilio(
   config.twilio.apiKeySid,
   config.twilio.apiKeySecret,
@@ -11,13 +10,15 @@ export const twilioClient = twilio(
 export async function placeCall(to: string): Promise<string> {
   if (!config.publicUrl) {
     throw new Error(
-      'PUBLIC_URL is required so Twilio can reach your server for status callbacks.\n' +
+      'PUBLIC_URL is required so Twilio can reach your server.\n' +
         'Set it to your ngrok or Cloudflare Tunnel URL and restart.'
     );
   }
 
   const sipUri = `sip:${config.openai.projectId}@sip.api.openai.com;transport=tls`;
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Dial><Sip>${sipUri}</Sip></Dial></Response>`;
+  const twiml =
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<Response><Dial><Sip>${sipUri}</Sip></Dial></Response>`;
 
   const call = await twilioClient.calls.create({
     to,
@@ -26,6 +27,8 @@ export async function placeCall(to: string): Promise<string> {
     statusCallback: `${config.publicUrl}/status`,
     statusCallbackMethod: 'POST',
     statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+    fallbackUrl: `${config.publicUrl}/fallback`,
+    fallbackMethod: 'POST',
   });
 
   return call.sid;
