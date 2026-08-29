@@ -48,6 +48,17 @@ export async function acceptCall(callId: string): Promise<void> {
     await openai.realtime.calls.accept(callId, {
       type: 'realtime',
       model: 'gpt-realtime-2.1',
+      audio: {
+        input: {
+          turn_detection: {
+            type: 'semantic_vad',
+            eagerness: 'high',
+            create_response: true,
+            interrupt_response: true,
+          },
+        },
+        output: { voice: 'marin' },
+      },
       instructions:
         `${SYSTEM_PROMPT}\n\n` +
         `At the very start of this call—before the caller says anything—` +
