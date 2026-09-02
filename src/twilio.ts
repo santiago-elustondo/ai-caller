@@ -15,10 +15,11 @@ export async function placeCall(to: string): Promise<string> {
     );
   }
 
-  const sipUri = `sip:${config.openai.projectId}@sip.api.openai.com;transport=tls`;
+  const host = new URL(config.publicUrl).host;
+  // <Connect><Stream> keeps the call alive and pipes audio bidirectionally through our server.
   const twiml =
     `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<Response><Dial><Sip>${sipUri}</Sip></Dial></Response>`;
+    `<Response><Connect><Stream url="wss://${host}/stream"/></Connect></Response>`;
 
   const call = await twilioClient.calls.create({
     to,
